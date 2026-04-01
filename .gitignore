@@ -1,0 +1,41 @@
+# Visual Studio 特定
+.vs/
+*.vcxproj.user
+*.vcxproj.filters.user
+*.suo
+*.user
+*.sln.docstates
+
+# 编译输出
+x64/
+Debug/
+Release/
+Win32/
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.ilk
+*.exp
+
+# 中间文件
+ipch/
+*.sdf
+*.db
+*.opendb
+
+# 备份文件
+*.bak
+*.tmp
+*.~
+
+# Boost 库（如果通过 vcpkg 安装，不需要提交）
+# 但如果你有自定义的第三方库代码，需要提交
+
+# 日志文件
+*.log
+
+# 调试文件
+*.dmp
+*.rsp
