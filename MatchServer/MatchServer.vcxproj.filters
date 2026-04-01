@@ -24,12 +24,18 @@
     <ClCompile Include="webSocketSession.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="MessageInterpreter.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="webSocketServer.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="webSocketSession.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="MessageInterpreter.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

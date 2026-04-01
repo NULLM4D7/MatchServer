@@ -124,10 +124,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="MatchServer.cpp" />
+    <ClCompile Include="MessageInterpreter.cpp" />
     <ClCompile Include="webSocketServer.cpp" />
     <ClCompile Include="webSocketSession.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="MessageInterpreter.h" />
     <ClInclude Include="webSocketServer.h" />
     <ClInclude Include="webSocketSession.h" />
   </ItemGroup>

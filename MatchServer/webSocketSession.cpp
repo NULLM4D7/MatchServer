@@ -1,6 +1,7 @@
 #include "webSocketSession.h"
 #include <sstream>
 #include "webSocketServer.h"
+#include "MessageInterpreter.h"
 
 WebSocketServer* WebSocketSession::webSocketServer = nullptr;
 
@@ -29,39 +30,70 @@ void WebSocketSession::run() {
     );
 }
 
+void WebSocketSession::sendMessage(const std::string& message) {
+    if (!webSocket.is_open()) {
+        std::cerr << "[WebSocketSession::sendMessage] WebSocket not open, cannot send message" << std::endl;
+        return;
+    }
+
+    // 创建独立缓冲区
+    auto buffer = std::make_shared<std::string>(message);
+    {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        sendQueue.push(buffer); // 加入输出队列
+    }
+
+    char typeChar = static_cast<char>(message[0]);
+    std::cout << "[WebSocketSession::sendMessage] Start send message type: " << 
+        MessageInterpreter::messageToString(static_cast<MessageInterpreter::MessageType>(typeChar)) << std::endl;
+    // 尝试启动发送
+    startSend();
+}
+
 std::string WebSocketSession::generateClientId() {
-    static std::atomic<int> counter{ 0 };
+    static std::atomic<unsigned int> counter{ 0 };
     return "Client-" + std::to_string(++counter);
+}
+
+void WebSocketSession::startSend()
+{
+    std::shared_ptr<std::string> buffer;
+    {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        if (isWriting || sendQueue.empty()) {   
+            // 已经在处理消息发送或消息队列为空
+            // 若正在发送消息 继续执行可能导致上一个async_write完成前再次调用async_write 导致断言失败
+            return;
+        }
+        isWriting = true;
+        buffer = sendQueue.front();
+        sendQueue.pop();
+    }
+
+    auto self = shared_from_this();
+    webSocket.async_write(
+        net::buffer(*buffer),
+        [self, buffer](beast::error_code ec, std::size_t bytes) {
+            if (ec) {
+                std::cerr << "[WebSocketSession::startSend lambda] Send error: " << ec.message() << std::endl;
+            }
+            {
+                std::lock_guard<std::mutex> lock(self->queueMutex);
+                self->isWriting = false;
+            }
+            // 继续发送队列中的下一条
+            self->startSend();
+        }
+    );
 }
 
 void WebSocketSession::onAccept(beast::error_code ec) {
     if (ec) {
-        std::cerr << "Accept error: " << ec.message() << std::endl;
+        std::cerr << "[WebSocketSession::onAccept] Accept error: " << ec.message() << std::endl;
         return;
     }
 
-    std::cout << clientId << " connected" << std::endl;
-
-    writeBuffer = "Welcome to WebSocket Server!";
-
-    // 发送欢迎消息
-    webSocket.text(true);  // 设置为文本帧
-    webSocket.async_write(
-		net::buffer(writeBuffer),   // 不能使用临时变量，因为它会在异步操作完成前被销毁
-        beast::bind_front_handler(
-            &WebSocketSession::onWrite,
-            shared_from_this()
-        )
-    );
-}
-
-void WebSocketSession::onWrite(beast::error_code ec, std::size_t bytes_transferred) {
-    boost::ignore_unused(bytes_transferred);
-
-    if (ec) {
-        std::cerr << "Write error: " << ec.message() << std::endl;
-        return;
-    }
+    std::cout << "[WebSocketSession::onAccept] " << clientId << " connected" << std::endl;
 
     // 开始读取消息
     readMessage();
@@ -87,32 +119,25 @@ void WebSocketSession::onRead(beast::error_code ec, std::size_t bytes_transferre
         ec == beast::errc::connection_aborted ||
         ec == beast::errc::broken_pipe) {
         // 客户端正常关闭连接
-        std::cout << clientId << " disconnected" << std::endl;
+        std::cout << "[WebSocketSession::onRead] " << clientId << " disconnected" << std::endl;
         if (webSocketServer) webSocketServer->removeSession(getClientId());
         return;
     }
 
     if (ec) {
-        std::cerr << "Read error from " << clientId << ": " << ec.message() << std::endl;
+        std::cerr << "[WebSocketSession::onRead] Read error from " << clientId << ": " << ec.message() << std::endl;
         if (webSocketServer) webSocketServer->removeSession(getClientId());
         return;
     }
 
     // 获取接收到的消息
     std::string message = beast::buffers_to_string(readBuffer.data());
-    std::cout << clientId << " says: " << message << std::endl;
+    char typeChar = message[0];
+    std::cout << "[WebSocketSession::onRead] " << clientId << " send: " 
+        << MessageInterpreter::messageToString(static_cast<MessageInterpreter::MessageType>(typeChar)) << std::endl;
 
     // 响应
-    std::stringstream ss;
-    ss << "ACK:" << message << std::endl;
-    writeBuffer = ss.str();
+    sendMessage(MessageInterpreter::interpret(clientId, message));
 
-    // 将确认消息发送给客户端
-    webSocket.async_write(
-        net::buffer(writeBuffer),
-        beast::bind_front_handler(
-            &WebSocketSession::onWrite,
-            shared_from_this()
-        )
-    );
+    readMessage();
 }
