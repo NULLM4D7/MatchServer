@@ -83,3 +83,11 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 }
+
+//#include "PortChecker.h"
+//
+//int main()
+//{
+//    for (int i = 0; i < 10; i++) std::cout << PortChecker::getUsableTCP_Port() << std::endl;
+//    return 0;
+//}

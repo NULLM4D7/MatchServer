@@ -1,5 +1,6 @@
 #include "webSocketServer.h"
 #include "MessageInterpreter.h"
+#include "PortChecker.h"
 
 WebSocketServer::WebSocketServer(net::io_context& IO_Context, tcp::endpoint endpoint, int playersNumsOfEachRoom)
     : IO_Context(IO_Context)
@@ -165,11 +166,17 @@ Room::Room(const std::unordered_map<std::string, std::shared_ptr<WebSocketSessio
     : roomSessions(room)
     , roomId(roomId)
 {
+    int port = PortChecker::getUsableTCP_Port();
     // 发送匹配成功通知
     for (const auto& sessionPair : room)
     {
         std::stringstream ss;
         ss << static_cast<char>(MessageInterpreter::MessageType::matchSuccess);
+        
+        // 写入ip和端口
+        ss << "127.0.0.1:" << port;
+        // 在指定端口启动专用服务器（待实现）
+
         sessionPair.second->sendMessage(ss.str());
         sessionPair.second->isPlaying = true;
 		sessionPair.second->roomId = roomId;
