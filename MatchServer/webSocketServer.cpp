@@ -1,11 +1,17 @@
 #include "webSocketServer.h"
 #include "MessageInterpreter.h"
 #include "PortChecker.h"
+#include <boost/asio.hpp>
+
+std::string WebSocketServer::gameServerPath = "~/LinuxServer/EmbersOfTheEndServer.sh";
+std::string WebSocketServer::ip = "127.0.0.1";
 
 WebSocketServer::WebSocketServer(net::io_context& IO_Context, tcp::endpoint endpoint, int playersNumsOfEachRoom)
     : IO_Context(IO_Context)
     , acceptor(IO_Context)
     , playersNumsOfEachRoom(playersNumsOfEachRoom){
+    ip = getLocalIP();
+    std::cout << "[WebSocketServer::WebSocketServer] IP:" << ip << std::endl;
 
     beast::error_code ec;
 
@@ -79,8 +85,8 @@ void WebSocketServer::removeSession(const std::string& clientId) {
             const auto& roomPair = rooms.find(sessionPair->second->roomId);
             if (roomPair != rooms.end())
             {
-                roomPair->second.roomSessions.erase(clientId);
-                if (roomPair->second.roomSessions.size() == 0)
+                roomPair->second->roomSessions.erase(clientId);
+                if (roomPair->second->roomSessions.size() == 0)
                 {
                     // 该房间的所有玩家都断开连接
                     rooms.erase(roomPair);
@@ -117,10 +123,10 @@ void WebSocketServer::reqMatch(const std::string& clientId)
         {
             // 生成房间ID
             static std::atomic<unsigned int> roomId{ 0 };
-            int tempRoomId = ++roomId;
+            unsigned int tempRoomId = ++roomId;
             // 创建房间
             std::lock_guard<std::mutex> roomsLock(roomsMutex);
-            rooms.insert({ tempRoomId, Room(matchingRoom, tempRoomId) });
+            rooms.insert({ tempRoomId, std::shared_ptr<Room>(new Room(matchingRoom, tempRoomId)) });
             // 清空匹配列表
 			matchingRoom.clear();
             std::cout << "[WebSocketServer::reqMatch] Create room" << std::endl;
@@ -162,6 +168,28 @@ void WebSocketServer::cancelMatch(const std::string& clientId)
     }
 }
 
+std::string WebSocketServer::getLocalIP() {
+    try {
+        boost::asio::ip::tcp::resolver resolver(IO_Context);
+
+        // 解析主机名获取本地 IP
+        auto endpoints = resolver.resolve(boost::asio::ip::host_name(), "");
+
+        for (const auto& endpoint : endpoints) {
+            boost::asio::ip::address addr = endpoint.endpoint().address();
+            // 过滤掉 IPv6 和回环地址
+            if (addr.is_v4() && !addr.is_loopback()) {
+                return addr.to_string();
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "GetLocalIP error: " << e.what() << std::endl;
+    }
+
+    return "127.0.0.1";  // 默认返回本地地址
+}
+
 Room::Room(const std::unordered_map<std::string, std::shared_ptr<WebSocketSession>>& room, unsigned int roomId)
     : roomSessions(room)
     , roomId(roomId)
@@ -174,11 +202,56 @@ Room::Room(const std::unordered_map<std::string, std::shared_ptr<WebSocketSessio
         ss << static_cast<char>(MessageInterpreter::MessageType::matchSuccess);
         
         // 写入ip和端口
-        ss << "127.0.0.1:" << port;
-        // 在指定端口启动专用服务器（待实现）
+        ss << WebSocketServer::ip << ":" << port;
+        address = ss.str();
+        // 在指定端口启动专用服务器
+        startUE_Server(port);
 
-        sessionPair.second->sendMessage(ss.str());
+        sessionPair.second->sendMessage(address);
         sessionPair.second->isPlaying = true;
 		sessionPair.second->roomId = roomId;
 	}
+}
+
+Room::~Room()
+{
+    stopUE_Server();
+}
+
+void Room::startUE_Server(int port)
+{
+    // 使用 shared_ptr 管理输出缓冲区，确保异步回调安全
+    serverOutput = std::make_shared<std::string>();
+    serverError = std::make_shared<std::string>();
+
+    std::stringstream ss;
+    ss << WebSocketServer::gameServerPath << " -PORT=" << port << " -log";
+
+    // 创建 Process 对象并转移到 unique_ptr 管理
+    UE_Process = std::make_unique<TinyProcessLib::Process>(
+        ss.str(),
+        ".",
+        [this, output_buffer = serverOutput](const char* data, size_t size) {
+            output_buffer->append(data, size);
+            std::cout << "[UE Server] " << std::string(data, size);
+        },
+        [this, error_buffer = serverError](const char* data, size_t size) {
+            error_buffer->append(data, size);
+            std::cerr << "[UE Server Error] " << std::string(data, size);
+        }
+    );
+
+    std::cout << "UE Server started on port " << port << " (PID: "
+        << (UE_Process ? "running" : "failed") << ")" << std::endl;
+    // 函数立即返回，进程在后台运行
+}
+
+void Room::stopUE_Server()
+{
+    if (UE_Process) {
+        std::cout << "Terminating UE Server..." << std::endl;
+        UE_Process->kill();  // 强制终止进程
+        // 注意：kill() 后 process 析构时仍会等待，但此时进程已结束，不会阻塞太久
+        UE_Process.reset();
+    }
 }
