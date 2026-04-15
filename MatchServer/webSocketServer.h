@@ -21,12 +21,13 @@ private:
     std::unordered_map<unsigned int, std::shared_ptr<Room>> rooms;
     std::mutex roomsMutex;
 
-    int playersNumsOfEachRoom;  // 每个房间的玩家数量（启动房间所需玩家数量）
 public:
     static std::string gameServerPath;  // 游戏专用服务器路径
-    static std::string ip;  // 当前设备IP
+    //static std::string ip;  // 当前设备IP
+    static int playersNumsOfEachRoom;  // 每个房间的玩家数量（启动房间所需玩家数量）
 
-    WebSocketServer(net::io_context& IO_Context, tcp::endpoint endpoint, int playersNumsOfEachRoom);
+    WebSocketServer(net::io_context& IO_Context, tcp::endpoint endpoint);
+    ~WebSocketServer();
 
     // 启动服务器，调用 accept() 开始监听
     void run() { accept(); }
@@ -40,9 +41,12 @@ public:
     void reqMatch(const std::string& clientId);
     // 取消匹配
     void cancelMatch(const std::string& clientId);
+
+    // 广播当前"房间内人数/游戏所需人数"
+    void multicastMatchInfo();
 private:
     // 获取当前设备IP地址
-    std::string getLocalIP();
+    //std::string getLocalIP();
     // 发起异步接受连接的操作
     void accept();
     // 接受新连接的回调，创建 WebSocketSession 对象处理该连接
@@ -54,17 +58,22 @@ class Room
 public:
     // 当前房间中的会话
     std::unordered_map<std::string, std::shared_ptr<WebSocketSession>> roomSessions;
-    // 当前房间（UE专用服务器）IP:端口
-    std::string address;
+    // 当前房间端口
+    int port;
     // 当前房间ID
     unsigned int roomId;
     // room<客户端ID, 客户端会话>, 房间ID
     Room(const std::unordered_map<std::string, std::shared_ptr<WebSocketSession>>& room, unsigned int roomId);
     ~Room();
 private:
+    friend class WebSocketServer;
     std::unique_ptr<TinyProcessLib::Process> UE_Process;  // 管理 UE 服务器进程
     std::shared_ptr<std::string> serverOutput;          // 共享输出缓冲区
     std::shared_ptr<std::string> serverError;           // 共享错误缓冲区
+
+    // 日志文件流和互斥锁
+    std::shared_ptr<std::ofstream> logFile;
+    std::mutex logMutex;
 
     void startUE_Server(int port);  // 在指定端口启动UE专用服务器
     void stopUE_Server();   // 关闭UE专用服务器

@@ -15,6 +15,7 @@ std::string MessageInterpreter::messageToString(const MessageType& messageType)
 		CASE(cancelMatchRes);
 		CASE(matchSuccess);
 		CASE(matchFailed);
+		CASE(matchInfo);
 	default:
 		return "Unknown";
 	}
@@ -27,12 +28,18 @@ std::string MessageInterpreter::interpret(const std::string& clientId, const std
 	switch (message[0])
 	{
 	case startMatchReq:
+	{
 		response << static_cast<char>(startMatchRes);
 		WebSocketSession::webSocketServer->reqMatch(clientId);
+		WebSocketSession::webSocketServer->multicastMatchInfo();
+	}
 		break;
 	case cancelMatchReq:
+	{
 		response << static_cast<char>(cancelMatchRes);
 		WebSocketSession::webSocketServer->cancelMatch(clientId);
+		WebSocketSession::webSocketServer->multicastMatchInfo();
+	}
 		break;
 	default:
 		std::cout << "[MessageInterpreter::interpret] Unknown message type from " << clientId << ": " << message << std::endl;

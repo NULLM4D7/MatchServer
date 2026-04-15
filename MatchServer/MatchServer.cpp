@@ -44,7 +44,7 @@ WebSocketSession::onRead() | 当 ec == websocket::error::closed 等时，表示�
 int main(int argc, char* argv[]) {
     try {
         auto const address = net::ip::make_address("0.0.0.0");
-        auto const port = static_cast<unsigned short>(8080);
+        auto const port = static_cast<unsigned short>(6060);
 
         std::cout << "[main] Starting WebSocket server on " << address << ":" << port << std::endl;
 
@@ -52,16 +52,14 @@ int main(int argc, char* argv[]) {
         net::io_context IO_Context{ 1 };
 
         // 启动参数1：启动房间所需玩家数量 默认为2
-        int playersNumsOfEachRoom;
-        if (argc > 1) playersNumsOfEachRoom = std::stoi(argv[1]);
-        else playersNumsOfEachRoom = 2;
-		// 启动参数2：UE服务器路径，默认为~/LinuxServer/EmbersOfTheEndServer.sh
+        if (argc > 1) WebSocketServer::playersNumsOfEachRoom = std::stoi(argv[1]);
+		// 启动参数2：UE服务器路径，默认为~/LinuxServer/LinuxServer/EmbersOfTheEndServer.sh
         if (argc > 2) WebSocketServer::gameServerPath = argv[2];
-        else WebSocketServer::gameServerPath = "~/LinuxServer/EmbersOfTheEndServer.sh";
-		std::cout << "[main] Players needed to start a room: " << playersNumsOfEachRoom << std::endl;
+        else WebSocketServer::gameServerPath = "~/LinuxServer/LinuxServer/EmbersOfTheEndServer.sh";
+		std::cout << "[main] Players needed to start a room: " << WebSocketServer::playersNumsOfEachRoom << std::endl;
 
         // 创建并运行服务器
-        WebSocketServer server(IO_Context, tcp::endpoint{ address, port }, playersNumsOfEachRoom);
+        WebSocketServer server(IO_Context, tcp::endpoint{ address, port });
         WebSocketSession::webSocketServer = &server;
         server.run();
 
@@ -84,11 +82,3 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 }
-
-//#include "PortChecker.h"
-//
-//int main()
-//{
-//    for (int i = 0; i < 10; i++) std::cout << PortChecker::getUsableTCP_Port() << std::endl;
-//    return 0;
-//}
