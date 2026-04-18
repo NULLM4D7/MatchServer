@@ -16,6 +16,8 @@ std::string MessageInterpreter::messageToString(const MessageType& messageType)
 		CASE(matchSuccess);
 		CASE(matchFailed);
 		CASE(matchInfo);
+		CASE(heartbeatReq);
+		CASE(heartbeatRes);
 	default:
 		return "Unknown";
 	}

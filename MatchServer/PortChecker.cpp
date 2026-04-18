@@ -61,6 +61,6 @@ int PortChecker::getUsableTCP_Port()
         port += 1;
         port %= 65536;
         if (port < 1024) port = 1024;
-        if (isTCP_PortInUse(port)) return port;
+        if (!isTCP_PortInUse(port)) return port;
     }
 }

@@ -8,6 +8,7 @@
 #include <string>
 #include <queue>
 #include <mutex>
+#include <boost/asio/steady_timer.hpp>
 
 namespace beast = boost::beast;
 namespace websocket = beast::websocket;
@@ -25,12 +26,19 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
     std::queue<std::shared_ptr<std::string>> sendQueue;    // 发送队列
     std::mutex queueMutex; // 保护队列的互斥锁
 	bool isWriting = false;   // 是否正在写入消息 防止重复调用startSend
+
+    // 定时器，每隔一段时间向客户端发送一次心跳请求，若在下次发送前未收到响应则移除当前会话
+    net::steady_timer heartbeatTimer;
+    bool isTimerRunning = false;
+    bool isReceiveHeartbeatRes = false; // 是否收到心跳响应
+
 public:
     static WebSocketServer* webSocketServer;    // 服务器对象 连接关闭时清理服务器对象中的会话容器
     unsigned int roomId; // 所在房间ID
     bool isPlaying = false;   // 是否正在游戏中
 
     explicit WebSocketSession(tcp::socket socket);
+    ~WebSocketSession();
 
     // 初始化会话（设置超时、最大消息大小），发起 WebSocket 握手
     void run();
@@ -49,4 +57,15 @@ private:
 
     // 开始发送队列中消息
     void startSend();
+
+    // 定时器回调函数
+    void onTimer(const beast::error_code& ec);
+    void startTimer();
+    void stopTimer();
+
+    // 异步关闭会话
+    //void close();
+
+    // 发送心跳请求
+    void SendHeartbeatReq();
 };

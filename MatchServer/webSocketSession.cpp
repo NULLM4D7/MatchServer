@@ -3,11 +3,31 @@
 #include "webSocketServer.h"
 #include "MessageInterpreter.h"
 
+// 心跳请求时间间隔（秒）
+#define HEARTBEAT_INTERVAL 60
+
 WebSocketServer* WebSocketSession::webSocketServer = nullptr;
 
 WebSocketSession::WebSocketSession(tcp::socket socket)
     : webSocket(std::move(socket))
-    , clientId(generateClientId()) {
+    , clientId(generateClientId())
+    , heartbeatTimer(webSocket.get_executor()) {
+}
+
+WebSocketSession::~WebSocketSession()
+{
+    // 停止定时器
+    stopTimer();
+
+    if (webSocket.is_open()) {
+        beast::error_code ec;
+        // 同步关闭
+        webSocket.close(websocket::close_code::normal, ec);
+        if (ec) {
+            std::cerr << "[~WebSocketSession] Close error: " << ec.message() << std::endl;
+        }
+    }
+    std::cout << "[~WebSocketSession] Close session: " << clientId << std::endl;
 }
 
 void WebSocketSession::run() {
@@ -95,6 +115,9 @@ void WebSocketSession::onAccept(beast::error_code ec) {
 
     std::cout << "[WebSocketSession::onAccept] " << clientId << " connected" << std::endl;
 
+    // 启动定时器
+    startTimer();
+
     // 开始读取消息
     readMessage();
 }
@@ -120,24 +143,122 @@ void WebSocketSession::onRead(beast::error_code ec, std::size_t bytes_transferre
         ec == beast::errc::broken_pipe) {
         // 客户端正常关闭连接
         std::cout << "[WebSocketSession::onRead] " << clientId << " disconnected" << std::endl;
+        stopTimer();
         if (webSocketServer) webSocketServer->removeSession(getClientId());
+
         return;
     }
 
     if (ec) {
         std::cerr << "[WebSocketSession::onRead] Read error from " << clientId << ": " << ec.message() << std::endl;
+        //close();
         if (webSocketServer) webSocketServer->removeSession(getClientId());
+
         return;
     }
 
     // 获取接收到的消息
     std::string message = beast::buffers_to_string(readBuffer.data());
     char typeChar = message[0];
+
     std::cout << "[WebSocketSession::onRead] " << clientId << " send: " 
         << MessageInterpreter::messageToString(static_cast<MessageInterpreter::MessageType>(typeChar)) << std::endl;
 
-    // 响应
-    sendMessage(MessageInterpreter::interpret(clientId, message));
+    // 接受到心跳响应
+    if (typeChar == MessageInterpreter::heartbeatRes)
+    {
+        isReceiveHeartbeatRes = true;
+    }
+    else
+    {
+        // 响应
+        sendMessage(MessageInterpreter::interpret(clientId, message));
+    }
 
     readMessage();
+}
+
+void WebSocketSession::startTimer() {
+    if (isTimerRunning) return;
+
+    isTimerRunning = true;
+    auto self = shared_from_this();
+
+    heartbeatTimer.expires_after(std::chrono::seconds(HEARTBEAT_INTERVAL));
+    heartbeatTimer.async_wait(
+        [self](beast::error_code ec) {
+            self->onTimer(ec);
+        }
+    );
+
+    // 发送心跳包
+    SendHeartbeatReq();
+}
+
+void WebSocketSession::stopTimer() {
+    isTimerRunning = false;
+    heartbeatTimer.cancel();
+}
+
+void WebSocketSession::onTimer(const beast::error_code& ec) {
+    if (ec == net::error::operation_aborted) {
+        // 定时器被主动取消
+        isTimerRunning = false;
+        return;
+    }
+
+    if (ec) {
+        std::cerr << "[WebSocketSession::onTimer] Timer error: " << ec.message() << std::endl;
+        isTimerRunning = false;
+        return;
+    }
+
+    // 未收到上一次心跳请求的响应，认为客户端死亡，释放当前会话
+    if (!isReceiveHeartbeatRes)
+    {
+        std::cout << "[WebSocketSession::onTimer] Clear session:" << clientId << std::endl;
+        //close();
+        if (webSocketServer) webSocketServer->removeSession(getClientId());
+        return;
+    }
+
+    // 重新启动定时器（循环）
+    if (isTimerRunning) {
+        auto self = shared_from_this();
+        heartbeatTimer.expires_after(std::chrono::seconds(HEARTBEAT_INTERVAL));
+        heartbeatTimer.async_wait(
+            [self](beast::error_code ec) {
+                self->onTimer(ec);
+            }
+        );
+    }
+
+    // 发送心跳包
+    SendHeartbeatReq();
+}
+
+//void WebSocketSession::close()
+//{
+//    if (!webSocket.is_open()) return;
+//    stopTimer();
+//    auto self = shared_from_this();
+//    webSocket.async_close(
+//        websocket::close_code::normal,
+//        [self](beast::error_code ec) {
+//            if (ec) {
+//                std::cerr << "[WebSocketSession::close] Async close error: " << ec.message() << std::endl;
+//            }
+//            else {
+//                std::cout << "[WebSocketSession::close] Connection closed successfully" << std::endl;
+//            }
+//        }
+//    );
+//}
+
+void WebSocketSession::SendHeartbeatReq()
+{
+    std::stringstream ss;
+    ss << static_cast<char>(MessageInterpreter::heartbeatReq);
+    sendMessage(ss.str());
+    isReceiveHeartbeatRes = false;
 }
